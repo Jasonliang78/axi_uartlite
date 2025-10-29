@@ -42,7 +42,7 @@ assign rxReady = 1'b1; // always ready.
 assign tx_data = regs[0];
 
 
-always_ff @ (posedge clk our negedge rst)
+always_ff @ (posedge clk or negedge rst)
 begin
     if(!rst)
     begin
@@ -54,10 +54,12 @@ begin
     begin
         if(wr_amba)
         begin
-            regs[addr_wc[2]] <= (strb == 0) ? data_in : {(strb[3]) ? data_in[31:24] : regs[addr_wc[2]][31:24],
-                                                         (strb[2]) ? data_in[23:16] : regs[addr_wc[2]][23:16],
-                                                         (strb[1]) ? data_in[15: 8] : regs[addr_wc[2]][15: 8],
-                                                         (strb[0]) ? data_in[ 7: 0] : regs[addr_wc[2]][ 7: 0]};
+         regs[addr_wc[2]] <= (strb == 0) ? regs[addr_wc[2]]  // 0 表示不写任何字节
+                                        : {(strb[3]) ? data_in[31:24] : regs[addr_wc[2]][31:24],
+                                           (strb[2]) ? data_in[23:16] : regs[addr_wc[2]][23:16],
+                                           (strb[1]) ? data_in[15: 8] : regs[addr_wc[2]][15: 8],
+                                           (strb[0]) ? data_in[ 7: 0] : regs[addr_wc[2]][ 7: 0]};
+
             txValid <= 1'b1;
         end
         if(txReady && txValid)

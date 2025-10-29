@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // Module: axi2uart
-// Type  : AXI4-Lite to UART bridge top level
+// Type  : AXI4 to UART bridge top level
 // Purpose: Tie the AXI register bank, UART datapath, and FIFOs into a cohesive
 //          peripheral.
 // Structure: PARAMETERS → STATE MACHINE → REGISTERS → COMBINATIONAL LOGIC →

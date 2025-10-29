@@ -28,13 +28,13 @@ module bufferTx #(
     parameter int WORD_WIDTH = 32,
     parameter int BYTE_WIDTH = 8
 )(
-    input  logic                 clk,
-    input  logic                 rst,
-    input  logic                 txValid,
-    input  logic                 full,
-    input  logic                 outReady,
-    output logic                 txReady,
-    output logic                 outValid,
+    input  logic                  clk,
+    input  logic                  rst,
+    input  logic                  txValid,
+    input  logic                  full,
+    input  logic                  outReady,
+    output logic                  txReady,
+    output logic                  outValid,
     input  logic [WORD_WIDTH-1:0] data_in,
     output logic [BYTE_WIDTH-1:0] data_out
 );

@@ -1,11 +1,11 @@
 module amba_if (
 	axi4_lite_hierarchical	amba_if,
-	output logic 		wr_amba,
-	input logic  [31:0] data_in,
-	output logic [31:0] addr_rc,
-	output logic [31:0] addr_wc,
-	output logic [31:0] data_out,
-	output logic [3:0] 	strb
+	output logic 		    wr_amba,
+	input logic  [31:0]     data_in,
+	output logic [31:0]     addr_rc,
+	output logic [31:0]     addr_wc,
+	output logic [31:0]     data_out,
+	output logic [3:0] 	    strb
 );
 
 import axi4_types::*;
