@@ -1,187 +1,184 @@
-`timescale 1ns/100ps
-// ============================================================================= //
-// Designer:       Jose Iuri B. de Brito - jose.brito@embedded.ufcg.edu.br       //             //
-//                                                                               //
-// Design Name:    UART Reciever                                                 //
-// Module Name:    uart_rx                                                       //
-//                                                                               //
-// ============================================================================= //
+// -----------------------------------------------------------------------------
+// Module: uart_rx
+// Type  : UART receiver (8N1 framing)
+// Purpose: Sample serial data and deliver bytes into the receive FIFO while
+//          coordinating flow control with the register interface.
+// Structure: PARAMETERS → STATE MACHINE → REGISTERS → COMBINATIONAL LOGIC →
+//            INSTANTIATION → PROCESSES
+// -----------------------------------------------------------------------------
 
-// This file contains the UART Receiver.  This receiver is able to
-// receive 8 bits of serial data, one start bit, one stop bit,
-// and no parity bit.  When receive is complete o_CTS will be
-// driven high for one clock cycle.
-// 
-// Set Parameter CLKS_PER_BIT as follows:
-// CLKS_PER_BIT = (Frequency of i_Clock)/(Frequency of UART)
-// Example: 10 MHz Clock, 115200 baud UART
-// (10000000)/(115200) = 87
-  
-module uart_rx 
-  #(parameter CLKS_PER_BIT = 87)
-  (
-   input logic        i_Clock,
-   input logic        rst,
-   input logic        i_Rx_Serial,
-   input logic        wr_ready,
-   input logic        full,
-   output logic       o_CTS,
-   output logic       o_RX_Done,
-   output logic [7:0] o_Rx_Byte
-   );
-    
-  parameter IDLE         = 3'b000;
-  parameter RX_START_BIT = 3'b001;
-  parameter RX_DATA_BITS = 3'b010;
-  parameter RX_STOP_BIT  = 3'b011;
-  parameter CLEANUP      = 3'b100;
-   
-  logic           r_Rx_Data_R;
-  logic           r_Rx_Data;
-   
-  logic [7:0]     r_Clock_Count;
-  logic [2:0]     r_Bit_Index; //8 bits total
-  logic [7:0]     r_Rx_Byte;
-  logic           r_Rx_DV;
-  logic [2:0]     r_SM_Main;
-   
-  // Purpose: Double-register the incoming data.
-  // This allows it to be used in the UART RX Clock Domain.
-  // (It removes problems caused by metastability)
-  always_ff @(posedge i_Clock or negedge rst)
-    begin
-      if (!rst)
-      begin
-        r_Rx_Data_R <= 1'b1;
-        r_Rx_Data   <= 1'b1;
-      end
-      else
-      begin
-        r_Rx_Data_R <= i_Rx_Serial;
-        r_Rx_Data   <= r_Rx_Data_R;
-      end
+`timescale 1ns/100ps
+
+// --- Port list ---
+// i_Clock    : System clock feeding the UART.
+// rst        : Asynchronous active-low reset.
+// i_Rx_Serial: Serial input line from the external pin.
+// wr_ready   : RX FIFO write-ready indicator.
+// full       : RX FIFO full flag to back-pressure the UART.
+// o_CTS      : Clear-to-send flag toward the external peer.
+// o_RX_Done  : Indicates that a new byte has been sampled.
+// o_Rx_Byte  : The received byte aligned to the system clock domain.
+// TODO: Provide parity checking hooks for future protocol variants.
+
+module uart_rx #(
+    // =========================================================================
+    // PARAMETERS
+    // =========================================================================
+    parameter int CLKS_PER_BIT = 87
+)(
+    input  logic       i_Clock,
+    input  logic       rst,
+    input  logic       i_Rx_Serial,
+    input  logic       wr_ready,
+    input  logic       full,
+    output logic       o_CTS,
+    output logic       o_RX_Done,
+    output logic [7:0] o_Rx_Byte
+);
+
+    localparam int CLOCK_CNT_WIDTH = (CLKS_PER_BIT > 1) ? $clog2(CLKS_PER_BIT) : 1;
+
+    // =========================================================================
+    // STATE MACHINE
+    // =========================================================================
+    typedef enum logic [2:0] {
+        ST_IDLE,       // Monitoring for the start bit.
+        ST_START_BIT,  // Validating the start bit midpoint.
+        ST_DATA_BITS,  // Sampling eight payload bits.
+        ST_STOP_BIT,   // Sampling the stop bit.
+        ST_CLEANUP     // Waiting for FIFO availability.
+    } state_t;
+
+    state_t state_q;
+    state_t state_d;
+
+    // =========================================================================
+    // REGISTERS
+    // =========================================================================
+    logic                 rx_data_meta_q;
+    logic                 rx_data_sync_q;
+    logic [CLOCK_CNT_WIDTH:0] clock_cnt_q;
+    logic [CLOCK_CNT_WIDTH:0] clock_cnt_d;
+    logic [2:0]               bit_index_q;
+    logic [2:0]               bit_index_d;
+    logic [7:0]               rx_byte_q;
+    logic [7:0]               rx_byte_d;
+    logic                     rx_done_q;
+    logic                     rx_done_d;
+    logic                     rx_cts_q;
+    logic                     rx_cts_d;
+
+    // =========================================================================
+    // COMBINATIONAL LOGIC
+    // =========================================================================
+    always_comb begin
+        state_d       = state_q;
+        clock_cnt_d   = clock_cnt_q;
+        bit_index_d   = bit_index_q;
+        rx_byte_d     = rx_byte_q;
+        rx_done_d     = rx_done_q;
+        rx_cts_d      = rx_cts_q;
+
+        unique case (state_q)
+            ST_IDLE: begin
+                clock_cnt_d = '0;
+                bit_index_d = '0;
+                rx_done_d   = 1'b0;
+                rx_cts_d    = 1'b0;
+                if (rx_data_sync_q == 1'b0) begin
+                    state_d = ST_START_BIT;
+                end
+            end
+
+            ST_START_BIT: begin
+                if (clock_cnt_q == (CLKS_PER_BIT-1)/2) begin
+                    if (rx_data_sync_q == 1'b0) begin
+                        clock_cnt_d = '0;
+                        state_d     = ST_DATA_BITS;
+                    end else begin
+                        state_d = ST_IDLE;
+                    end
+                end else begin
+                    clock_cnt_d = clock_cnt_q + 1'b1;
+                end
+            end
+
+            ST_DATA_BITS: begin
+                if (clock_cnt_q < CLKS_PER_BIT-1) begin
+                    clock_cnt_d = clock_cnt_q + 1'b1;
+                end else begin
+                    clock_cnt_d = '0;
+                    rx_byte_d[bit_index_q] = rx_data_sync_q;
+                    if (bit_index_q == 3'd7) begin
+                        bit_index_d = '0;
+                        state_d     = ST_STOP_BIT;
+                    end else begin
+                        bit_index_d = bit_index_q + 1'b1;
+                    end
+                end
+            end
+
+            ST_STOP_BIT: begin
+                if (clock_cnt_q < CLKS_PER_BIT-1) begin
+                    clock_cnt_d = clock_cnt_q + 1'b1;
+                end else begin
+                    clock_cnt_d = '0;
+                    rx_done_d   = 1'b1;
+                    state_d     = ST_CLEANUP;
+                end
+            end
+
+            ST_CLEANUP: begin
+                if (!full && wr_ready) begin
+                    rx_cts_d  = 1'b1;
+                    state_d   = ST_IDLE;
+                end
+            end
+
+            default: begin
+                state_d = ST_IDLE;
+            end
+        endcase
     end
-   
-   
-  // Purpose: Control RX state machine
-  always_ff @(posedge i_Clock)
-    begin
-      if (!rst)
-      begin
-        r_Clock_Count = 0;
-        r_Bit_Index   = 0;
-        r_Rx_Byte     = 0;
-        r_Rx_DV       = 0;
-        r_SM_Main     = 0;
-      end
-      else
-      case (r_SM_Main)
-        IDLE :
-          begin
-            r_Clock_Count <= 0;
-            r_Bit_Index   <= 0;
-             
-            if (r_Rx_Data == 1'b0)          // Start bit detected
-            begin
-              o_RX_Done <= 1'b0;
-              r_SM_Main <= RX_START_BIT;
-              r_Rx_DV       <= 1'b0;
-            end
-            else
-            begin
-              r_SM_Main <= IDLE;
-            end
-          end
-         
-        // Check middle of start bit to make sure it's still low
-        RX_START_BIT :
-          begin
-            if (r_Clock_Count == (CLKS_PER_BIT-1)/2)
-              begin
-                if (r_Rx_Data == 1'b0)
-                  begin
-                    r_Clock_Count <= 0;  // reset counter, found the middle
-                    r_SM_Main     <= RX_DATA_BITS;
-                  end
-                else
-                  r_SM_Main <= IDLE;
-              end
-            else
-              begin
-                r_Clock_Count <= r_Clock_Count + 1;
-                r_SM_Main     <= RX_START_BIT;
-              end
-          end // case: s_RX_START_BIT
-         
-         
-        // Wait CLKS_PER_BIT-1 clock cycles to sample serial data
-        RX_DATA_BITS :
-          begin
-            if (r_Clock_Count < CLKS_PER_BIT-1)
-              begin
-                r_Clock_Count <= r_Clock_Count + 1;
-                r_SM_Main     <= RX_DATA_BITS;
-              end
-            else
-              begin
-                r_Clock_Count          <= 0;
-                r_Rx_Byte[r_Bit_Index] <= r_Rx_Data;
-                 
-                // Check if we have received all bits
-                if (r_Bit_Index < 7)
-                  begin
-                    r_Bit_Index <= r_Bit_Index + 1;
-                    r_SM_Main   <= RX_DATA_BITS;
-                  end
-                else
-                  begin
-                    r_Bit_Index <= 0;
-                    r_SM_Main   <= RX_STOP_BIT;
-                  end
-              end
-          end // case: s_RX_DATA_BITS
-     
-     
-        // Receive Stop bit.  Stop bit = 1
-        RX_STOP_BIT :
-          begin
-            // Wait CLKS_PER_BIT-1 clock cycles for Stop bit to finish
-            if (r_Clock_Count < CLKS_PER_BIT-1)
-              begin
-                r_Clock_Count <= r_Clock_Count + 1;
-                r_SM_Main     <= RX_STOP_BIT;
-              end
-            else
-              begin
-                r_Clock_Count <= 0;
-                o_RX_Done <= 1'b1;
-                r_SM_Main     <= CLEANUP;
-              end
-          end // case: s_RX_STOP_BIT
-     
-         
-        // Stay here 1 clock
-        CLEANUP :
-          begin
-            if(!full && wr_ready)
-            begin
-              r_SM_Main <= IDLE;
-              r_Rx_DV   <= 1'b1;
-            end
-            else
-            begin
-              r_SM_Main <= CLEANUP;
-            end
-          end
-         
-         
-        default :
-          r_SM_Main <= IDLE;
-         
-      endcase
-    end   
-   
-  assign o_CTS   = r_Rx_DV;
-  assign o_Rx_Byte = r_Rx_Byte;
-   
-endmodule // uart_rx
+
+    // =========================================================================
+    // INSTANTIATION
+    // =========================================================================
+    // (none)
+
+    // =========================================================================
+    // PROCESSES
+    // =========================================================================
+    always_ff @(posedge i_Clock or negedge rst) begin
+        if (!rst) begin
+            rx_data_meta_q <= 1'b1;
+            rx_data_sync_q <= 1'b1;
+        end else begin
+            rx_data_meta_q <= i_Rx_Serial;
+            rx_data_sync_q <= rx_data_meta_q;
+        end
+    end
+
+    always_ff @(posedge i_Clock or negedge rst) begin
+        if (!rst) begin
+            state_q     <= ST_IDLE;
+            clock_cnt_q <= '0;
+            bit_index_q <= '0;
+            rx_byte_q   <= '0;
+            rx_done_q   <= 1'b0;
+            rx_cts_q    <= 1'b0;
+        end else begin
+            state_q     <= state_d;
+            clock_cnt_q <= clock_cnt_d;
+            bit_index_q <= bit_index_d;
+            rx_byte_q   <= rx_byte_d;
+            rx_done_q   <= rx_done_d;
+            rx_cts_q    <= rx_cts_d;
+        end
+    end
+
+    assign o_CTS     = rx_cts_q;
+    assign o_RX_Done = rx_done_q;
+    assign o_Rx_Byte = rx_byte_q;
+
+endmodule
