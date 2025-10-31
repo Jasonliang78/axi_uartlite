@@ -24,7 +24,7 @@ module axi2uart #(
     // =========================================================================
     parameter int CLKS_PER_BIT = 217
 )(
-    axi4_lite_hierarchical amba_intf,
+    axi_slave_if.slave amba_intf,
     input  logic           i_RTS,
     input  logic           i_Rx_Serial,
     output logic           o_CTS,
@@ -91,8 +91,8 @@ module axi2uart #(
     );
 
     axi4LiteReg u_regfile (
-        .clk      (amba_intf.ACLK),
-        .rst      (amba_intf.ARSTn),
+        .clk      (amba_intf.aclk),
+        .rst      (amba_intf.aresetn),
         .wr_amba  (wr_amba),
         .addr_rc  (addr_rc),
         .addr_wc  (addr_wc),
@@ -108,8 +108,8 @@ module axi2uart #(
     );
 
     bufferTx u_buffer_tx (
-        .clk      (amba_intf.ACLK),
-        .rst      (amba_intf.ARSTn),
+        .clk      (amba_intf.aclk),
+        .rst      (amba_intf.aresetn),
         .txValid  (txValid),
         .full     (fullTx),
         .outReady (tx_fifo_wr_ready),
@@ -120,8 +120,8 @@ module axi2uart #(
     );
 
     syn_fifo u_tx_fifo (
-        .clk      (amba_intf.ACLK),
-        .rst      (amba_intf.ARSTn),
+        .clk      (amba_intf.aclk),
+        .rst      (amba_intf.aresetn),
         .data_in  (tx_fifo_din),
         .rd_en    (i_RTS),
         .rd_valid (tx_fifo_rd_valid),
@@ -135,8 +135,8 @@ module axi2uart #(
     uart_tx #(
         .CLKS_PER_BIT (CLKS_PER_BIT)
     ) u_uart_tx (
-        .i_Clock   (amba_intf.ACLK),
-        .rst       (amba_intf.ARSTn),
+        .i_Clock   (amba_intf.aclk),
+        .rst       (amba_intf.aresetn),
         .i_RTS     (i_RTS),
         .empty     (emptyTx),
         .rd_valid  (tx_fifo_rd_valid),
@@ -149,8 +149,8 @@ module axi2uart #(
     uart_rx #(
         .CLKS_PER_BIT (CLKS_PER_BIT)
     ) u_uart_rx (
-        .i_Clock    (amba_intf.ACLK),
-        .rst        (amba_intf.ARSTn),
+        .i_Clock    (amba_intf.aclk),
+        .rst        (amba_intf.aresetn),
         .i_Rx_Serial(i_Rx_Serial),
         .wr_ready   (rx_fifo_wr_ready),
         .full       (fullRx),
@@ -160,8 +160,8 @@ module axi2uart #(
     );
 
     syn_fifo u_rx_fifo (
-        .clk      (amba_intf.ACLK),
-        .rst      (amba_intf.ARSTn),
+        .clk      (amba_intf.aclk),
+        .rst      (amba_intf.aresetn),
         .data_in  (rx_fifo_din),
         .rd_en    (rx_fifo_rd_en),
         .rd_valid (rx_fifo_rd_valid),
@@ -173,8 +173,8 @@ module axi2uart #(
     );
 
     bufferRx u_buffer_rx (
-        .clk      (amba_intf.ACLK),
-        .rst      (amba_intf.ARSTn),
+        .clk      (amba_intf.aclk),
+        .rst      (amba_intf.aresetn),
         .rxValid  (rxValid),
         .empty    (emptyRx),
         .rxReady  (rxReady),
